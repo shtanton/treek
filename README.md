@@ -22,3 +22,8 @@ treek 'people.* {println($0.first_name + " " + $0.last_name)}'
 ```
 treek 'people.*.age {total += $0; count += 1} {println(total / count)}'
 ```
+
+#### Print the first names of all the Johnsons
+```
+treek 'people.($0.last_name=="Johnson").first_name'
+```

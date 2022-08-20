@@ -40,6 +40,7 @@ type Value interface{
 	mul(Value) Value
 	div(Value) Value
 	index(Value) Value
+	equals(Value) ValueBool
 }
 
 func castToType(v Value, t ValueType) Value {
@@ -124,6 +125,13 @@ func (v ValueNull) div(w Value) Value {
 func (v ValueNull) index(w Value) Value {
 	return ValueNull {}
 }
+func (v ValueNull) equals(w Value) ValueBool {
+	typ := w.typ()
+	if typ == TypeNull {
+		return true
+	}
+	return castToType(v, typ).equals(w)
+}
 
 func (v ValueBool) withAssignment(path []Value, value Value) Value {
 	if len(path) == 0 {
@@ -193,6 +201,10 @@ func (v ValueBool) div(w Value) Value {
 func (v ValueBool) index(w Value) Value {
 	return v
 }
+func (v ValueBool) equals(w Value) ValueBool {
+	rhs := w.castToBool()
+	return v == rhs
+}
 
 func (v ValueNumber) withAssignment(path []Value, value Value) Value {
 	if len(path) == 0 {
@@ -249,6 +261,10 @@ func (v ValueNumber) div(w Value) Value {
 }
 func (v ValueNumber) index(w Value) Value {
 	return v
+}
+func (v ValueNumber) equals(w Value) ValueBool {
+	rhs := w.castToNumber()
+	return v == rhs
 }
 
 func (v ValueString) withAssignment(path []Value, value Value) Value {
@@ -347,6 +363,10 @@ func (v ValueString) index(w Value) Value {
 	index := int(math.Round(float64(w.castToNumber())))
 	// TODO: use proper strings functions here
 	return ValueString(v[index])
+}
+func (v ValueString) equals(w Value) ValueBool {
+	rhs := w.castToString()
+	return v == rhs
 }
 
 func (v ValueArray) withAssignment(path []Value, value Value) Value {
@@ -448,6 +468,18 @@ func(v ValueArray) div(w Value) Value {
 func (v ValueArray) index(w Value) Value {
 	index := int(math.Round(float64(w.castToNumber())))
 	return v[index]
+}
+func (v ValueArray) equals(w Value) ValueBool {
+	rhs := w.castToArray()
+	if len(v) != len(rhs) {
+		return false
+	}
+	for i, el := range v {
+		if !el.equals(rhs[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (v ValueMap) withAssignment(path []Value, value Value) Value {
@@ -558,6 +590,22 @@ func (v ValueMap) index(w Value) Value {
 		return ValueNull {}
 	}
 	return res
+}
+func (v ValueMap) equals(w Value) ValueBool {
+	rhs := w.castToMap()
+	for key, lvalue := range v {
+		rvalue, rhsHasValue := rhs[key]
+		if !rhsHasValue || !bool(lvalue.equals(rvalue)) {
+			return false
+		}
+	}
+	for key := range rhs {
+		_, lhsHasValue := v[key]
+		if !lhsHasValue {
+			return false
+		}
+	}
+	return true
 }
 
 type VariableReference string
@@ -679,7 +727,7 @@ func (state *EvalState) popAddress() Address {
 	return state.pop().toAddress()
 }
 
-func (index PatternSegmentIndex) matches(_ *EvalState, pathSegment TreePathSegment) bool {
+func (index PatternSegmentIndex) matches(_ *EvalState, path []TreePathSegment, pathSegment TreePathSegment) bool {
 	switch pathSegment.(type) {
 		case string:
 			return string(index) == pathSegment.(string)
@@ -690,12 +738,14 @@ func (index PatternSegmentIndex) matches(_ *EvalState, pathSegment TreePathSegme
 	}
 }
 
-func (filter PatternSegmentFilter) matches(state *EvalState, pathSegment TreePathSegment) bool {
+func (filter PatternSegmentFilter) matches(state *EvalState, path []TreePathSegment, pathSegment TreePathSegment) bool {
+	state.variables["path"] = pathToValueArray(path).clone()
+	state.variables["$0"] = state.data.getPath(path).clone()
 	result := evalExpr(state, Expression(filter))
 	return bool(result.castToBool())
 }
 
-func (segment PatternSegmentBasic) matches(state *EvalState, pathSegment TreePathSegment) bool {
+func (segment PatternSegmentBasic) matches(state *EvalState, path []TreePathSegment, pathSegment TreePathSegment) bool {
 	switch segment {
 		case PatternSegmentAll:
 			return true
@@ -710,7 +760,7 @@ func matchPattern(state *EvalState, pattern Pattern, walkItem TreeWalkItem) bool
 	}
 	for i, patternSegment := range pattern.segments {
 		pathSegment := walkItem.path[i]
-		if !patternSegment.matches(state, pathSegment) {
+		if !patternSegment.matches(state, walkItem.path[0:i+1], pathSegment) {
 			return false
 		}
 	}
@@ -762,6 +812,13 @@ func (instruction InstructionBasic) eval(state *EvalState) {
 			val := state.pop()
 			state.push(val)
 			state.push(val.toValue(state).clone())
+		case InstructionEqual:
+			rhs := state.popValue()
+			lhs := state.popValue()
+			state.push(lhs.equals(rhs))
+		case InstructionNot:
+			val := state.popValue().castToBool()
+			state.push(!val)
 		default:
 			panic("Error: Tried to execute invalid basic instruction")
 	}

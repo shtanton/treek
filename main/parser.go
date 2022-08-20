@@ -16,6 +16,8 @@ const (
 	InstructionAssign
 	InstructionIndex
 	InstructionDup
+	InstructionEqual
+	InstructionNot
 )
 
 type InstructionPushNumber float64
@@ -56,6 +58,10 @@ func (i InstructionBasic) debug() {
 			fmt.Println("Index")
 		case InstructionDup:
 			fmt.Println("Dup")
+		case InstructionEqual:
+			fmt.Println("Equal")
+		case InstructionNot:
+			fmt.Println("Not")
 		default:
 			fmt.Println("Unknown Basic Instruction")
 	}
@@ -91,7 +97,7 @@ const (
 
 type PatternSegment interface {
 	debug()
-	matches(*EvalState, TreePathSegment) bool
+	matches(*EvalState, []TreePathSegment, TreePathSegment) bool
 }
 
 type Pattern struct {
@@ -242,6 +248,13 @@ func (p *parser) parseExpression(minPower int) (expr Expression, noExpression bo
 		case TokenEOF:
 			p.rewind()
 			return nil, true
+		case TokenNot:
+			e, noExpression := p.parseExpression(14)
+			if noExpression {
+				panic("Missing expression after !")
+			}
+			expr = append(expr, e...)
+			expr = append(expr, InstructionNot)
 		case TokenNumber:
 			num, err := strconv.ParseFloat(token.val, 64)
 			if err != nil {
@@ -315,6 +328,7 @@ func (p *parser) parseExpression(minPower int) (expr Expression, noExpression bo
 			TokenAst: {InstructionMul, 12, 13},
 			TokenDiv: {InstructionDiv, 12, 13},
 			TokenAssign: {InstructionAssign, 3, 2},
+			TokenEqual: {InstructionEqual, 8, 9},
 		}
 		binop, isBinop := binops[token.typ]
 		assigns := map[TokenType]InstructionBasic {
@@ -354,6 +368,13 @@ func (p *parser) parseExpression(minPower int) (expr Expression, noExpression bo
 					panic("Expected identifier after .")
 				}
 				expr = append(expr, InstructionPushString(index), InstructionIndex)
+			case token.typ == TokenNotEqual && 8 >= minPower:
+				e, noExpression := p.parseExpression(9)
+				if noExpression {
+					panic("Missing expression after operator")
+				}
+				expr = append(expr, e...)
+				expr = append(expr, InstructionEqual, InstructionNot)
 			default:
 				p.rewind()
 				break oploop

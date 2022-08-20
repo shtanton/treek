@@ -128,6 +128,9 @@ const (
 	TokenSubAssign // -=
 	TokenAstAssign // *=
 	TokenDivAssign // /=
+	TokenEqual // ==
+	TokenNotEqual // !=
+	TokenNot // !
 )
 
 type Token struct {
@@ -271,6 +274,12 @@ func lexAction(l *lexer) stateFunc {
 		'/': {
 			'=': TokenDivAssign,
 		},
+		'=': {
+			'=': TokenEqual,
+		},
+		'!': {
+			'=': TokenNotEqual,
+		},
 	}
 	charTokens := map[rune]TokenType{
 		'+': TokenAdd,
@@ -281,6 +290,7 @@ func lexAction(l *lexer) stateFunc {
 		',': TokenComma,
 		';': TokenSemicolon,
 		'=': TokenAssign,
+		'!': TokenNot,
 	}
 	r := l.next()
 	charToken, isCharToken := charTokens[r]
